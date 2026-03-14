@@ -1,0 +1,145 @@
+{
+    "name": "NATACHA - Calendar Sync (Native)",
+    "nodes": [
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "hours"
+                        }
+                    ]
+                }
+            },
+            "id": "1",
+            "name": "Schedule Trigger",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.1,
+            "position": [
+                250,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "getAll",
+                "calendar": "primary",
+                "returnAll": true,
+                "options": {
+                    "timeMin": "={{ $now.beginningOfDay().toISO() }}",
+                    "timeMax": "={{ $now.endOfDay().toISO() }}"
+                }
+            },
+            "id": "2",
+            "name": "Google Calendar",
+            "type": "n8n-nodes-base.googleCalendar",
+            "typeVersion": 1,
+            "position": [
+                450,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "modelId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "models/gemini-1.5-flash"
+                },
+                "messages": {
+                    "values": [
+                        {
+                            "message": "=You are NATACHA, a highly intelligent personal productivity assistant.\nAnalyze the following calendar event:\n    \nContent:\n{{ $json.summary }} - {{ $json.description ? $json.description : 'No description' }}\n    \nExtract the following information and output it EXACTLY as a JSON object:\n{\n    \"importance_score\": <int from 1 to 10 based on urgency and impact>,\n    \"summary\": \"<a concise 1-sentence summary of what it's about>\",\n    \"action\": \"<the recommended preparation action, e.g., 'prepare slides', 'read notes'>\"\n}\nIMPORTANT: Return ONLY the raw JSON object, without markdown formatting or code blocks.",
+                            "role": "user"
+                        }
+                    ]
+                },
+                "builtInTools": {},
+                "options": {}
+            },
+            "id": "3",
+            "name": "Google Gemini",
+            "type": "@n8n/n8n-nodes-langchain.googleGemini",
+            "typeVersion": 1.1,
+            "position": [
+                650,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const response = $input.item.json;\nlet ai_data;\n\n// Debug: Log the raw response so we can see what Gemini answered in n8n\nconsole.log(response);\n\ntry {\n  const rawContent = response.content || response.text || response.message || '{}';\n  const cleanText = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();\n  ai_data = JSON.parse(cleanText);\n} catch (e) {\n  ai_data = { importance_score: 5, summary: \"Error parsing AI response\", action: \"Manual review\" };\n}\n\nconst importance_score = ai_data.importance_score || 5;\n// For today's calendar events, assume high time score\nconst time_score = 40;\n\nconst base_score = (importance_score / 10.0) * 50;\nlet final_score = base_score + time_score;\nif (final_score > 100) final_score = 100;\n\nconst is_urgent = final_score > 75 || importance_score >= 9;\n\nreturn {\n  priority_score: Math.round(final_score),\n  is_urgent: is_urgent,\n  importance_score: importance_score,\n  summary: ai_data.summary,\n  suggested_action: ai_data.action\n};"
+            },
+            "id": "3_code",
+            "name": "Priority Calculator",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                850,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "chatId": "YOUR_CHAT_ID",
+                "text": "=🗓️ Event Today: {{ $json.summary }}\nUrgent: {{ $json.is_urgent }}\nSuggestion: {{ $json.suggested_action }}"
+            },
+            "id": "4",
+            "name": "Telegram",
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.1,
+            "position": [
+                1050,
+                300
+            ]
+        }
+    ],
+    "connections": {
+        "Schedule Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Google Calendar",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Google Calendar": {
+            "main": [
+                [
+                    {
+                        "node": "Google Gemini",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Google Gemini": {
+            "main": [
+                [
+                    {
+                        "node": "Priority Calculator",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Priority Calculator": {
+            "main": [
+                [
+                    {
+                        "node": "Telegram",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "active": false,
+    "settings": {}
+}

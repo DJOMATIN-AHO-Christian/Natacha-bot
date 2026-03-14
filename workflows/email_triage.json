@@ -1,0 +1,173 @@
+{
+  "name": "NATACHA - Email Triage (Native)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "labelIds": [
+            "UNREAD"
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-1.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "message": "=You are NATACHA, a highly intelligent personal productivity assistant.\nAnalyze the following email from {{ $json.payload?.headers?.find(h => h.name === 'From')?.value || 'Unknown Sender' }}.\n    \nContent:\n{{ $json.snippet ? $json.snippet : 'No content provided' }}\n    \nExtract the following information and output it EXACTLY as a JSON object:\n{\n    \"importance_score\": <int from 1 to 10 based on urgency and impact>,\n    \"summary\": \"<a concise 1-sentence summary of what it's about>\",\n    \"action\": \"<the recommended action, e.g., 'reply to confirm', 'schedule meeting', 'ignore'>\"\n}\nIMPORTANT: Return ONLY the raw JSON object, without markdown formatting or code blocks.",
+              "role": "user"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "2",
+      "name": "Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.item.json;\nlet ai_data;\n\n// Debug: Log the raw response so we can see what Gemini answered in n8n\nconsole.log(response);\n\n// Try to parse the Gemini text response into a JSON object\n// Output of langchain google gemini is usually in $json.text or $json.text? No it's $json.text\ntry {\n  const rawContent = response.content || response.text || response.message || '{}';\n  const cleanText = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();\n  ai_data = JSON.parse(cleanText);\n} catch (e) {\n  ai_data = { importance_score: 5, summary: \"Error parsing AI response\", action: \"Manual review\" };\n}\n\n// Prioritization logic (JS port from prioritization.py)\nconst importance_score = ai_data.importance_score || 5;\n// For emails we don't naturally have a deadline, so neutral time_score of 10\nconst time_score = 10;\n\nconst base_score = (importance_score / 10.0) * 50;\nlet final_score = base_score + time_score;\nif (final_score > 100) final_score = 100;\n\n// Urgent if score > 75 or importance is very high\nconst is_urgent = final_score > 75 || importance_score >= 9;\n\n// Build the new output item\nreturn {\n  priority_score: Math.round(final_score),\n  is_urgent: is_urgent,\n  importance_score: importance_score,\n  summary: ai_data.summary,\n  suggested_action: ai_data.action\n};"
+      },
+      "id": "2_code",
+      "name": "Priority Calculator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.is_urgent }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "If Urgent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "YOUR_SLACK_CHANNEL",
+        "text": "=URGENT Email!\nSummary: {{ $json.summary }}\nAction: {{ $json.suggested_action }}\nPriority: {{ $json.priority_score }}"
+      },
+      "id": "4",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1050,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "title": "=Task: {{ $json.summary }}",
+        "notes": "=Suggested Action: {{ $json.suggested_action }}"
+      },
+      "id": "5",
+      "name": "Google Tasks",
+      "type": "n8n-nodes-base.googleTasks",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Google Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini": {
+      "main": [
+        [
+          {
+            "node": "Priority Calculator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority Calculator": {
+      "main": [
+        [
+          {
+            "node": "If Urgent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Urgent": {
+      "main": [
+        [
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}
