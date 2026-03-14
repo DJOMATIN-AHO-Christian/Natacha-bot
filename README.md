@@ -1,4 +1,4 @@
-# NATACHA - **N**ext-gen **A**utomated **T**ask & **C**alendar **H**elper with **A**I
+# NATACHA - Next-gen Automated TAsk & Calendar Helper with AI
 
 NATACHA est votre assistant personnel intelligent propulsé par [n8n](https://n8n.io/) et **Google Gemini**.
 
